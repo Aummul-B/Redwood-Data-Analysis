@@ -1,0 +1,497 @@
+\documentclass[english]{article}
+
+
+\usepackage{graphicx} 
+\setkeys{Gin}{width=3in} 
+\usepackage{geometry}
+\geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\parskip}{\smallskipamount}
+\setlength{\parindent}{0pt}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\begin{document}
+\bibliographystyle{plain}
+
+
+
+
+\SweaveOpts{concordance=TRUE}
+\SweaveOpts{cache=TRUE}
+\SweaveOpts{width=6.5,height=4} 
+
+\title{Redwood Data Analysis, Stat 215A, Fall 2018}
+
+
+\author{Aummul Baneen Manasawala}
+
+\maketitle
+
+
+
+<<setup, echo = FALSE, message=FALSE, warning=FALSE, cache = TRUE>>=
+
+# loading packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+library(zoo)
+library(gpairs)
+library(cowplot)
+library(hms)
+library(gridExtra)
+library(ggcorrplot)
+library(reshape)
+
+# load in the loadData() functions
+source("R/load.R")
+
+# load in the cleanData() functions
+source("R/clean.R")
+@
+
+<<load-data, cache = TRUE, echo = FALSE, message = FALSE, warning = FALSE>>=
+
+# load the dates data
+dates_orig <- loadDatesData(path = "data/")
+
+
+# clean the dates data
+dates <- cleanDatesData(dates_orig)
+
+
+# load the redwood sensor data
+redwood_all_orig <- loadRedwoodData(path = "data/", source = "all")
+redwood_net_orig <- loadRedwoodData(path = "data/", source = "net")
+redwood_log_orig <- loadRedwoodData(path = "data/", source = "log")
+
+
+# load in the mote location data
+mote_location <- loadMoteLocationData(path = "data/")
+
+
+# clean the redwood sensor data
+clean_redwood_all_intrm <- cleanRedwoodData(redwood_all_orig)
+clean_redwood_all <- cleanRedwoodDataType(clean_redwood_all_intrm)
+clean_redwood_net <- cleanRedwoodData(redwood_net_orig)
+clean_redwood_log <- cleanRedwoodData(redwood_log_orig)
+
+@
+
+\section{Introduction}
+This report is about reproducibility and analysis of the "A Macroscope in the Redwoods" paper\cite{tolle2005macroscope}. We also include three interesting findings from the data collected by the authors in the case study of a wireless sensor network that recorded 44 days in the life of a 70-meter tall redwood tree, at a density of 5 minute in time and every 2 meters in space. The sensor network is referred as 'macroscope' as it can perform dense temporal and spatial monitoring that would help gain insights of the complex interactions. Using this technology, the authors of the paper\cite{tolle2005macroscope} report microclimatic monitoring of a coastal redwood canopy. In doing their study, they use multidimentional analysis methodology to more deeply understand the dense and wide-ranging spatiotemporal data obtained from the macroscope. In this report we would start with inspecting the data of their study, its collection, cleaning and exploration. It would be followed by the three intereseting findings from the data which are different to the ones mentioned in their publication.
+
+\section{Motivation}
+The authors of the paper\cite{tolle2005macroscope} chose to study the microclimatic changes through the temporal and spatial densities of the redwood amongst a lot of natural phenomenons that could be studied using the macroscopic network. The reason for the same lie in the fact that the top of the tree experiences a wide variation in the temperature, humidity and ofcourse, light while the bottom is typically cool, moist and shaded. This creates a non uniform gradient in the weather front that move through the structure of the tree. When the sun rises, the top of the canopy warms quickly. This warm front moves down the tree over time until the entire structure stabilizes or until cooling at the canopy surface causes the process to reverse. Humidity front also move through the canopy but the process is less complicated by the tree moving so much water up from the soil and into the air. At some point, the observed humidity is driven by the transpiration process and decoupled from the prevailing climatic conditions.
+
+\section{The Data}
+The data can be roughly divided into two on the basis of the value of ineterst and the deployment characteristic. In the set of the data which is the value of interest is the data that is gathered by the Internet of Things (IoT) sensors. This includes the temperature, humdity, incident PAR (Photosynthetically Actice Radiations) and reflected PAR. These are the climatic parameter's whose distribution over space and time we need to study. The second part of the daat that consists of the deployment characteristics is the daat that accounts for the differences in the treatment and all the confounding factors that might be affecting the values that we get for the climatic parameters of ineterest. This set of data consist of the time at which the reading from the sensor is recorded, height of the sensors from the ground level, angular location of the sensor and the direction they face and the radial distance of the sensors from the tree.
+
+\subsection{Data Collection}
+
+The author of the paper\cite{tolle2005macroscope} designed wireless micro-weather station based on the Berkeley Motes manufactured by Crossbow. They stood on the shoulders of giants and made use of the established technology provided by TinyOS\cite{hill2000system}, MiniRoute\cite{woo2003taming}, and TinyDB\cite{madden2002tag}. The software for the node operating system, network stack and data collection framework was TinyOS ans TASK.
+
+The data was collected from the sensors once every 5 minutes because they felt it was sufficient to capture the variation. The entire time frame of the data collection was 44 days and this task was carried out by the authors of the paper themself. In order to capture the gradient in enough detail, nodes were placed with roughly 2 meter spacing between them starting from 15m from the ground to 70m from the ground level. Most nodes were on the west side because the west side of the canopy was thicker and provided the most buffer against direct environmental effects. In terms of the radial distance of the nodes,they were pretty close to the trunk and the distance range was 0.1m to 1.0 m only. This was done in order to ensure that the microclimatic trends that affected the tree directly were captured and the effects of the broader surrounding climate could be ignored. This being said, some of the nodes were placed outside of the angular radial envolope to monitor the microclimate in the vicinity of other biological sensing equipment previously installed.
+
+
+\subsection{Data Cleaning}
+The data, since it is obtained from the Internet Of Things (device), is not very clean and is highly erroneous. There are a lot of missing values and a lot of values which doesnot make any sense. We approached data cleaning with a lot of steps such as removing the missing values, removing values not possible in the real world etc and we would dive further in the intricacies of some of them.
+
+Firstly, we first start with dealing with the missing readings. We had two options to attack the missing values, either to remove the row with a missing value entirely or to replace the missing value with another reading. If we remove all the rows with the missing values, we loose roughly 20 percent of the data which is a setback. But, since we are looking for patterns in the data, if we chose to replace the missing values with a value, say mean, or median, it might negatively interfere in the patterns and skew our inferences. Therefore, we chose to go with the smaller of the two evils and remove the missing data.
+
+Secondly, we found out that the humidity values were negative and also larger than 100 which is not possible in the real physical world for a 70-meter height\cite{miloshevich2001characterization}. We referred to the paper\cite{tolle2005macroscope} and trusted their range of humidity which starts from 16.4. We remove all the rows of the sensor reading for which humidity is recorded less than 16.4 as clearly it is a faulty reading and there is a high chance of the other values recorded by the sensor at that moment to be erroneous too.
+
+Similarly, we follow the guidelines of the authors of 'A macroscope in the Redwoods' for the temperature which according to them is in the range of 6.6 to 32.6 degree celcius. We remove all the data points outside this range without loosing more than 0.03\% of the data. 
+
+Coming to the Incident PAR, the readings are too hayward than to the range described in the paper. Authors Tolle et al. suggest that the incident PAR must lie in the range of 0 to 2154 but the data doesnot confirm. After cleaning the data for bashing outliers like negative values and values as larger than 50000, we still have 30\% of the data as seen in figure \ref{fig : a} not falling in that range. There must be something seriously off either with the units of measurements reported in the paper and the units of measurement of the data or normalization. We could not confirm to the norms laid out by the paper because the massive extend of non confirmity of the data to those recommendations. We would like the author to revise the range or data to explain this so that we don't loose as much as 36\% of the data in our anlysis. For the purpose of our analysis, we choose the range to be from 0 to 10000 to loose only 20\% of the data which is also a lot but atleast we are assured of the data not being too wrong which could otherwise adversly affect our analysis and lead to faulty outcomes.
+
+<<echo = FALSE, eval=FALSE>>=
+
+#showing the percentage of incident PAR values not following the range of the authors of the paper
+
+values_their_range <- table(redwood_all_orig$hamatop <= 10000)
+
+perc_not_in_their <- (values_their_range[1] * 100) /(values_their_range[1] + values_their_range[2])
+
+perc_not_in_their
+@
+
+
+\begin{figure}
+  \centering
+\begin{center}
+<<hamatop_dist, fig = TRUE, echo = FALSE, warning = FALSE, out.width='1in'>>=
+
+# Plotting the distribution of the incident PAR for the raw data removing only the most objectionable outliers
+
+temp <- redwood_all_orig %>% filter(hamatop <= 50000)
+
+ggplot(temp, aes(hamatop)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 2) + theme_classic() + xlab("Incident PAR") + ylab("Density")
+
+@
+  \caption{Distribution of Incident PAR}
+  \label{fig : a}
+\end{center}
+\end{figure}
+
+For the reflected PAR, we face the same dilemma. As much as 15\% of the data donot fall in the range described by the authors for the reflected PAR i.e. 0 to 180. However, since we have a large dataset and it is feasible to do the analysis even after loosing that, we trust the author's recommendations and remove all the data with the reflected PAR lower than 0 and higher than 180. We would highly want the clarifications from the author about the heavy percentage of the data deviant from their range, but because of lack of access, we take the safer side and perform the analysis on the cleaning lines that the authors suggest.
+
+<<echo = FALSE, eval=FALSE>>=
+#showing the percentage of values of reflected PAR not following the range of the authors of the paper
+
+values_their_range_bot <- table(redwood_all_orig$hamabot <= 180)
+
+perc_not_in_their_bot <- (values_their_range_bot[1] * 100) /(values_their_range_bot[1] + values_their_range_bot[2])
+
+perc_not_in_their_bot
+@
+
+
+Most important of all, the erroneous readings and the outliers were correlated to the voltage of the batteries\cite{tolle2005macroscope}. In the section 5.6 of the paper\cite{tolle2005macroscope}, authors mention that there is a positive correlation between anomalies and the battery failure. We removed all the voltage readings lower than 1 to ensure that we don't include readings that were clearly wrong because of the low battery in the sensor. Removing voltage values lower than 2.4 volts looks important as those are the dying batteries, so we go ahead with removing the data rows with the voltage parameter less than 2.4 volts. However, we find that about 30\% pf the data has voltage of the battery much higher than 3 volts. They are even higher than 100 volts which is quite strange. There is definitely some other scale or transformation in those voltage values which is unexplainable with our resources and needs further investigation. We move forward assuming that there is error in the information recording and donot discard the 30\% of our valuable data.
+
+
+<<echo=FALSE, eval=FALSE>>=
+count_volt_higher_100 <- table(redwood_all_orig$voltage >= 100)
+
+prop_higher_100 <- (count_volt_higher_100[2]*100)/(count_volt_higher_100[2] + count_volt_higher_100[1])
+
+prop_higher_100
+@
+
+The work\cite{tolle2005macroscope}says that the analysis has been done for 44 days in the summer from April 27, 2004 to June 10, 2004. However, we find that there are around 40\% of the data entries have date in the month of November which could be seen in the figure \ref{figdates}. We would like to know is the reason for the dates being so anomalous and weather the data recorded on these dates is representative of the summers for which the microclimatic analysis have been performed or not.
+
+
+\begin{figure}
+\begin{center}
+  \centering
+<<date_dist, fig = TRUE, echo = FALSE, warning = FALSE, out.width='0.5\\linewidth', fig.width=8, fig.height=10>>=
+unique.levels <- sort(unique(clean_redwood_all$Date))
+count <- table(clean_redwood_all$Date)
+count.df <- data.frame(unique.levels, count)
+ggplot(count.df, aes(unique.levels, Freq, fill=unique.levels)) + geom_bar(stat="identity") + labs(title="Sample count for every date",y="Count", x="Date") + theme(legend.position="none",axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+@
+  \caption{Distribution of the Dates of the Sensor recordings}
+  \label{figdates}
+\end{center}
+\end{figure}
+
+
+After having done with the filtering, we ensure that the data types of all features is the one desired for manipulations and analysis. Moreover, we add certain columns to the dataframe like height/position, direction to help us in the future work. We have also split the result-time which was a combination of the date and the time to just two columns of date and time seperately to ensure easier interpretation and smoother workability with the data.
+
+\subsection{Data Exploration}
+
+To gauge the data, we first explore the distribution of each of the data in one dimention of value only. The ranges of the data were pretty much, although not entirely in the sensible range of the features they should be proving the correct functionality of the sensor. We can refer to the distribution in figure \ref{fig1}. Our temperature distribution is not as unimodular as the that of the distribution by the authors of the paper\cite{tolle2005macroscope} because of the sudden falling of the values in the range of 15 degree celcius to 20 degree celcius and then a jump after 20 degree celcius. The only data cleaning step that we had performed different than the authors is including the data points with voltage higher than 3 volts. So, in order to ensure that that different step is not the one that leads to this anomaly, I am comparing the density plots from the two data sets in the figure \ref{fig2}. Since both the distribution are not unimodular, the author's analysis is not reproducible with the dataset. The distribution of the humidity shows a bump at 100 RH which is rightly attributed to the fog which is prevalant in the California coast early in the summer. Gladly, the distribution of the incident PAR and the reflected PAR is very similar to that of the author given in the paper's \cite{tolle2005macroscope} figure3(a).
+
+\begin{figure}
+\begin{center}
+  \centering
+<<one_d_dist, fig = TRUE, echo = FALSE, warning = FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17, eval=FALSE>>=
+one_D_temp <- ggplot(clean_redwood_all, aes(humid_temp)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 3.5) + theme_bw() + xlab("Temperature in degree celcius") + ylab("Density") + ggtitle("Distribution of temperature")
+
+
+one_D_humidity <- ggplot(clean_redwood_all, aes(humidity)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 3.5) + theme_bw() + xlab("Relative Humidity") + ylab("Density") + ggtitle("Distribution of humidity")
+
+
+
+one_D_hamatop <- ggplot(clean_redwood_all, aes(hamatop)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 2) + theme_bw() + xlab("Incident") + ylab("Density") + ggtitle("Distribution of Incident PAR")
+
+
+
+one_D_hamabot <- ggplot(clean_redwood_all, aes(hamabot)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 2) + theme_bw() + xlab("Reflected PAR") + ylab("Density") + ggtitle("Distribution of Reflected PAR")
+
+
+grid.arrange(one_D_temp, one_D_humidity, one_D_hamatop, one_D_hamabot, nrow = 2)
+
+@
+  \caption{Distribution of the sensor readings projected onto the value dimension}
+  \label{fig1}
+\end{center}
+\end{figure}
+
+
+\begin{figure}
+\begin{center}
+  \centering
+<<our_vs_author, fig = TRUE, echo = FALSE, fig.cap = "Distribution of features", out.width='1in', cache = TRUE>>=
+one_D_temp <- ggplot(clean_redwood_all, aes(humid_temp)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 3.5) + theme_bw() + xlab("Temperature in degree celcius") + ylab("Density") + ggtitle("Distribution from our dataset")
+
+
+temp_author <- clean_redwood_all %>% filter(voltage <= 3)
+one_D_temp_2 <- ggplot(temp_author, aes(humid_temp)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, fill = "#333333")+
+  geom_density(fill = "#ff4d4d", alpha = 0.5, kernel = "gaussian", adjust = 3.5) + theme_bw() + xlab("Temperature in degree celcius") + ylab("Density") + ggtitle("Distribution from author's dataset")
+
+grid.arrange(one_D_temp, one_D_temp_2, nrow = 1)
+@
+  \caption{Comparing the temperature distribution from the dataset of our data cleaning vs author's data cleaning}
+  \label{fig2}
+\end{center}
+\end{figure}
+
+
+Exploring furthur, I came across the fact that the time is not representative of the actual time in the sonoma county. This could be seen from the fact that sun rise times during summers of  2004 in the sonoma county according to the verified sources\cite{def_2004} was between 05:45:00 to 06:15:00. However, we can see in the figure \ref{sun_time} that the Incident PAR sensor is activated at the time around 13:00:00 when we see the presence of the presence of preence of the incident PAR values from a long break of when the incident PAR values are 0 which is attributed to no sunlight. Similarly, we observe the sun to betting at about 3:00:00 which contradicts to the records\cite{def_2004} that show it to be setting between the time of 20:00:00 to 20:30:00. Therefore, we can deduce that the timings recorded in the data are off by 7 hours.
+
+\begin{figure}
+\begin{center}
+  \centering
+<<sun_time, fig = TRUE, echo = FALSE, fig.cap = "Distribution of features", out.width='1in', cache = TRUE>>=
+subset_23_may <- clean_redwood_all %>% filter(Date == '2004-05-23')
+ggplot(clean_redwood_all) + geom_point(aes(x = Time, y = hamatop), alpha = 0.2, size = 0.5, color = "purple") + ylab("Incident PAR") + theme_bw() + xlab("Time of the 24 hour day")
+@
+  \caption{Incident PAR wrt Time}
+  \label{sun_time}
+\end{center}
+\end{figure}
+
+
+During the data exploration, one more thing that we gathered which might be appropriate to note was that majority of readings came only from some nodes/sensors. we find that around 20\% of the sensor nodes contribute to around 60\% of the data as can be seen in the figure \ref{piechart}. Thus our analysis would be skewed to these nodes position, height, and other conditions. We would not cater to the other microclimatic changes as much as these one. Keeping this inconsistency in mind would help us ask better questions and more insights while doing our analysis. Ignoring this has the potential to cause disastrous impacts on our results down the line. 
+
+<<a, echo=FALSE, eval=FALSE>>=
+# Calculating the percentage of nodes which contributes to the majority sensor data 
+tot_nodes <- length(unique(clean_redwood_all$nodeid))
+nodes_with_majority_readings <- length(which(table(clean_redwood_all$nodeid)>6000))
+prop_nodes_major_reads <- nodes_with_majority_readings*100/tot_nodes
+prop_nodes_major_reads
+@
+
+<<b, echo = FALSE, eval=FALSE>>=
+#Calculating the percentage of the data share from these nodes.
+list_nodes <- which(table(clean_redwood_all$nodeid)>6000)
+
+num_data_share_these_nodes <- nrow(clean_redwood_all %>% filter(nodeid==4 |nodeid==5 | nodeid==14 | nodeid==42 | nodeid==46 | nodeid==70 | nodeid==74 | nodeid==77 |  nodeid==80 |  nodeid==105 | nodeid==110 | nodeid==118 | nodeid==119 | nodeid==127 |nodeid==197))
+
+prop_data_these_nodes <- num_data_share_these_nodes * 100 /nrow(clean_redwood_all)
+
+prop_data_these_nodes
+@
+
+\begin{figure}
+\begin{center}
+  \centering
+<<pie_chart, fig = TRUE, echo = FALSE, warning=FALSE, message=FALSE, out.width='1in'>>=
+
+# Calculating the percentage of nodes which contributes to the majority sensor data 
+tot_nodes <- length(unique(clean_redwood_all$nodeid))
+nodes_with_majority_readings <- length(which(table(clean_redwood_all$nodeid)>6000))
+prop_nodes_major_reads <- nodes_with_majority_readings*100/tot_nodes
+
+
+#Calculating the percentage of the data share from these nodes.
+list_nodes <- which(table(clean_redwood_all$nodeid)>6000)
+
+num_data_share_these_nodes <- nrow(clean_redwood_all %>% filter(nodeid==4 |nodeid==5 | nodeid==14 | nodeid==42 | nodeid==46 | nodeid==70 | nodeid==74 | nodeid==77 |  nodeid==80 |  nodeid==105 | nodeid==110 | nodeid==118 | nodeid==119 | nodeid==127 |nodeid==197))
+
+prop_data_these_nodes <- num_data_share_these_nodes * 100 /nrow(clean_redwood_all)
+
+# Simple Pie Chart
+slices <- c(prop_nodes_major_reads, (100 - prop_nodes_major_reads))
+lbls <- c("Important Nodes", "Other Nodes")
+slices_data <- c(prop_data_these_nodes, (100 - prop_data_these_nodes))
+lbls_data <- c("Data from 20% Nodes", "Data from 80% Nodes")
+
+#par(mfrow = c(1, 2))
+#p1 <- pie(slices, labels = lbls,  col = terrain.colors(2), radius = 1)
+p2 <- pie(slices_data, labels = lbls_data, col = terrain.colors(2), radius = 1)
+@
+  \caption{The contribution of few nodes to the majority of data collected}
+  \label{piechart}
+\end{center}
+\end{figure}
+
+\section{Graphical Critique}
+The authors of the "A macroscope in the Redwoods" paper for their analysis start with "stage 1" of projecting the data to one dimension of value. This one dimension help them to understand the range and distribution of the data independent of the space and time dimension. According to me this should be a data exploration rather than analysis to verify the credibility of the sensors and ensuring that the data is making sense. Also, the work makes statemnet about the humidity being bimodal and the temperature being unimodal. which only is concievable if we look deeply at the histograms and infer them. I feel that a density plot would have made their point more visually clear.
+
+Coming to the the graphs generated of the distribution of the sensor readings projected onto the time and value dimension in the figure 3(b), the distribution of the  temperature, humidity, incident PAR and reflected PAR is shown with box plots for each day to see the weather movement in large.  The work also successfully explains the correlations seen between the features on a very high humidity day like May 7th. It would have been visually better if the graphs could be made on the common x axis of the day so that we could see the inteplay of the features more clearly. Also, the questuon of the temporal distribution of the climate has not been answered in the text quantitatively. We have not been provided that how much percentage variation we see in temperature, humidity or PAR between say a foggy day and a clear day. In the absence of such numbers the complete picture of the temporal distribution remains incomplete.
+
+Unlike for the temporal distribution graphs of 3(b), I really appreciate that the spatial distribution graphs of 3(c) have been made on a common height axis which makes the interplay between the features more visually comprehensible. The results have been well quantified in the text that what percentage changes in the variables we observe from the top of the tree to the bottom. Also, to account for the lack of spatial trend because of the fact that the amount of variation over time overwhelms the amount of variation over space, they came with a plot of variable's difference from the mean which is figure 3(d). This has been commendable as we can now observe the values realtionship with the height which was hidden in the previous graph 3(c). However, this graph would have been more insightful if the intensity of color would have been used to show the amount and direction of the deflection of the features from the mean with respect to the height.
+
+The combined analysis, figure 4, successfully answers a lot of questions. It explains why the mean incident PAR is higher in the afternoon because of the placement of the sensors in the west. It shows the temperature as the function of the sun and also attributes the solar influence as the reason for the spread in the readings of the sensors. The sudden 50\% change in humidity is accounted but not a very convincing explaination for the same is produced.  One the sun has risen it is shown that the temporal variability reduces but not the spatial variability. The difference in humidity movements and the temperature movements are justified with the local humidity. The humidity dip observed is termed as the trend exception in the microclimate. These are not convincing enough without being explained by the domain knowledge of the climate. 
+
+The spatial analysis (right side of figure 4) is done at the time of the rapid dip observed in humidity that is uncorrelated with the temperature and incident PAR. There is no reason provided for doing so. I would analyse a time of noremal behaviour of variable rather than exception because analysing an exceptional point of time would make the findings of the analysis less credible. The authors must justify the reason of doing so. The presence of correct trend is shown in the graphs. The difference in the temperature between the eastern and western sensors are appropriately captured. The missing part still remains the quantification of the variations in the temperature, humidity and incident PAR with changing time and height.  
+
+
+
+
+
+
+\section{Findings}
+
+
+\subsection{First finding}
+During the temporal trends analysis in the paper \cite{tolle2005macroscope}, the high humidy day May 7th has been discussed. The hypothesis made that it is due to heavy fod has been proved by the low incident PAR skewed lower on the day. The combined analysis pick up the day of May 1st quoting that it has wide range of temperature and humidity readings throughout the day. But there is no analysis of the day on which the humidity is low compared to the nearby days. Also, there is no analysis of the later days of the experiment discussed in the work. That motivated me to look for a day as shown in figure \ref{figJune1why} with lower than normal humidity during the later stages of the experimental timeline.  
+
+
+\begin{figure}
+\begin{center}
+  \centering
+<<why_june, fig = TRUE, echo = FALSE, warning=FALSE, message=FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17>>=
+june_1_surround <- clean_redwood_all %>% filter(Date >= '2004-05-28') 
+
+June_hum <- ggplot(data = june_1_surround)+geom_boxplot(aes(Date, humidity), size = 0.7) + theme_bw()+ theme(axis.text.x = element_text(angle = 0, hjust = 1)) + ylab(label = "Humidity in RH") + coord_flip()
+
+June_temp <- ggplot(data = june_1_surround) + geom_boxplot(aes(Date, humid_temp), size = 0.7)+theme_bw()+ theme(axis.text.x = element_text(angle = 0, hjust = 1)) + coord_flip() + ylab(label = "Temperature in deg-celcius")
+
+june_1_surr_wo_night <- june_1_surround %>% filter(hamatop != 0)
+
+June_PAR <- ggplot(data = june_1_surr_wo_night) + geom_boxplot(aes(Date, hamatop), size = 0.7)+theme_bw()+ theme(axis.text.x = element_text(angle = 0, hjust = 1)) + coord_flip() + ylab(label = "Incident PAR in  micro-mol/sq-m/s" )
+
+
+grid.arrange(June_hum, June_temp, June_PAR, ncol = 3)
+@
+  \caption{"Distribution of sensor readings wrt time during the later stages of the experiment"}
+  \label{figJune1why}
+\end{center}
+\end{figure}
+
+We selected June 01 as the humidity distribution was lowest compared to the other days in consideration. As we expected, the temperature distribution of that day is higher than the rest of the day, proving what authors mentioned in the paper \cite{tolle2005macroscope} about the inverse relationship between temperature and humidity. However, the incident PAR during that day is not reflecting a positive relationship with the temperature. This can be attributed to the fact that the correlation between the temperature and solar radiations weakens during the summer season\cite{bristow1984relationship}. Since the summer has now advance in the full form since the time of the initial May 01 analysis, we associate this to the summer anomaly with low correlation of temperature and solar radiation.    
+
+
+\begin{figure}
+\begin{center}
+  \centering
+<<june_explore, fig = TRUE, echo = FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17, warning=FALSE, message=FALSE>>=
+
+june_1 <- june_1_surround %>% filter(Date == '2004-06-01')
+june_1$Height <- as.numeric(june_1$Height) 
+
+# making the plot wrt height
+g1 <- ggplot(data = june_1) + geom_point(aes(x = humid_temp, y = humidity, color = Height), alpha = 0.5) + theme_bw() + xlab("Temperature in deg-celcius")+ ylab("Humidity in %RH") + scale_color_gradientn(colours = terrain.colors(7))
+
+
+june_1_wo_night <- june_1 %>% filter(hamatop != 0)
+#making the plot wrt incident PAR
+g2 <- ggplot(data = june_1_wo_night) + geom_point(aes(x = humid_temp, y =humidity, color = hamatop), alpha = 0.5) + theme_bw() + xlab("Temperature in deg-celcius") + ylab("Humidity in %RH") + scale_color_gradientn(name = "Incident PAR", colours = terrain.colors(7))
+
+grid.arrange(g1, g2, ncol = 2)
+@
+  \caption{"Variations in Humidity and temperature as a function of (a)Height and (b) Incident PAR"}
+  \label{june1study}
+\end{center}
+\end{figure}
+
+
+We also analyze the variations of humidity and temperature with respect to height on this day of June 01 (Figure \ref{june1study}(a)). We find that at lower heights the humidity is high and the  temperature is low. This could be attributed to the canopy at the lower heights in the forest that makes the microclimate damp, moist and cool. 
+
+To study the incident PAR, we remove the readings when the radiations are zero i.e. at night because it overwhelms the distribution making it hard to visualize the variations of the radiation during daytime. From figure \ref{june1study}(b) we infer that the radiations readings are weaker when the temperature is lower. Therfore, we deduce that although the relationship of radiations and temperature is not very strong due to summer anomaly on JUNE 01, the temperature is still a function of the radiation and they are positively related however weak.
+
+
+
+
+\subsection{Second finding}
+
+<<echo = FALSE, eval = FALSE>>=
+
+# Differentiating the sensors on the east and west
+west_node_IDS <- mote_location %>% filter(Direc == "WSW" | Direc == "SW" | Direc == "NW" | Direc == "WNW" | Direc == "W") %>% select(ID)
+west_nodeids <- west_node_IDS[[1]]
+@
+
+\begin{figure}
+\begin{center}
+  \centering
+<<East_PAR, fig = TRUE, echo = FALSE, warning=FALSE, message=FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17>>=
+
+#Adding the column of direction of the sensor in the dataframe
+east_node_IDS <- mote_location %>% filter(Direc == "E" | Direc == "ESE" | Direc == "NE") %>% select(ID)
+east_nodeids <- east_node_IDS[[1]]
+
+subset_May_12 <- clean_redwood_all %>% filter(Date == "2004-05-12" | Date == "2004-05-13") %>% mutate(Direction = ifelse(nodeid %in% east_nodeids, "East", "West"))
+
+
+p1 <- ggplot(data = subset_May_12, aes(x = Time, y = hamatop, color = Direction)) + geom_point(shape=16, size = 1.5, alpha = 0.7) + scale_color_manual(values = c("red", "grey")) + theme_bw()+ geom_vline(xintercept = as.hms("02:45:00"), linetype="dotted", color = "blue", size=0.5)+ geom_vline(xintercept = as.hms("13:45:00"), linetype="dotted", color = "blue", size=0.5) + ylab("Incident PAR")
+
+
+
+
+subset_May_21 <- clean_redwood_all %>% filter(Date == "2004-05-21" | Date == "2004-05-22") %>% mutate(Direction = ifelse(nodeid %in% east_nodeids, "East", "West"))
+
+
+p2 <- ggplot(data = subset_May_21, aes(x = Time, y = hamatop, color = Direction)) + geom_point(shape=16, size = 1.5, alpha = 0.7) + scale_color_manual(values = c("red", "grey")) + theme_bw()+ geom_vline(xintercept = as.hms("02:45:00"), linetype="dotted", color = "blue", size=0.5)+ geom_vline(xintercept = as.hms("13:45:00"), linetype="dotted", color = "blue", size=0.5) + ylab("Incident PAR")
+
+grid.arrange(p1, p2, nrow = 2)
+@
+  \caption{Incident PAR as a function of time (a)Dates : May 12 and 13 and (b) Dates : May 21 and 22}
+  \label{eastsun}
+\end{center}
+\end{figure}
+
+Sun rises in the east and sets in the west. We wanted to visualize the implications of this universally acceptable truth on the radiations recorded by the sensors of the macroscope in the Redwoods. The paper\cite{tolle2005macroscope} already mentions how the eastern sensors are warmer in the morning time. However, behavior of the incident PAR  with respect to time has not been studied. To analyze the incident PAR with respect to time we chose four days,  two chosen near the 1st quartile (May 12-May 13) and two near the 3rd quartile (May 21-May 22) of the time of the experiment. For both the cases we find (figure \ref{eastsun}) that the eastern sensors (in red) record the last incident PAR reading before the western sensors. Therefore, it substantiates that when sun sets, the western region recieves radiations for longer. Likewise, we also observe that the eastern sensors start recieving their radiations few minutes earlier to the western ones ratifying that sun rises in the east. 
+
+
+
+
+\subsection{Third finding}
+
+<<echo = FALSE>>=
+
+# Measuring the percentage change in the temperature and pressure as a function of position 
+
+all_edge <- clean_redwood_all
+
+perc_diff <- all_edge %>% 
+  group_by(Position) %>%
+  summarise_at(vars(humidity, humid_temp, hamatop), funs(mean(., na.rm=TRUE)))
+@
+
+\begin{figure}
+\begin{center}
+  \centering
+<<mean-trunk, fig = TRUE, echo = FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17>>=
+g1 <- ggplot(data = perc_diff) + geom_point(aes(x = humid_temp, y = humidity, color = Position), size = 3.5) + theme_bw() + xlab("Mean Temperature in deg-celcius") + ylab("Mean Humidity in %RH")
+
+g2 <- ggplot(data = perc_diff) + geom_point(aes(x = humid_temp, y = hamatop, color = Position), size = 3.5) + theme_bw() + xlab("Mean Temperature in deg-celcius") + ylab("Mean Incident PAR")
+
+grid.arrange(g1, g2, ncol = 2)
+
+@
+  \caption{Variables change with respect to distance from the trunk}
+  \label{trunk_dist}
+\end{center}
+\end{figure}
+
+The nodes in the macroscopic network were placed at a variable distance from the trunk of the tree. We divide the sensors to be either far from the trunk if the distance from the trunk is greater than 0.1m or close to the trunk otherwise. We find that the temperature tend to be 3.7\% higher in the sensors far from the trunk because the shade of the canopy is limited and there is direct radiation of sun. The readings of the incident PAR are 6.7\%higher in the sensors at edge than those in the interior. Since higher temperature regions can hold more water, for the same amount of water holded the relative humidity goes down. We find the humidity at the edges is about 4\% lower than humidity of sensors that are very near to the trunk. This is coherent with our moist and dampy experience in the canopy of the forest. 
+
+
+\begin{figure}
+\begin{center}
+  \centering
+<<trunk_more, fig = TRUE, echo = FALSE, warning=FALSE, message=FALSE, out.width='1\\linewidth', fig.width=15, fig.height=17>>=
+far_trunk <- clean_redwood_all%>% filter(nodeid== 59 | nodeid == 42)
+
+ggplot(data = far_trunk) + geom_point(aes(x = humid_temp, y = humidity, color = nodeid), alpha = 0.5, size = 1) + scale_color_manual(labels = c("far_from_trunk", "close_to_trunk"), values = c("blue", "red")) + xlab("Temperature in deg-celcius") +
+  theme_bw() + ylab("Humidity in %RH")
+@
+  \caption{Distribution of temperature and Humidity from a sensor placed close and far to the trunk and each}
+  \label{trunk_dist2}
+\end{center}
+\end{figure}
+
+
+
+
+\section{Discussion}
+Interesting observations are made from the data exploration like the summer anomaly and the relationships between the variables on that anomalous day. We learnt how the solar radiations are different for the different sides of the tree at the same time because of the orbiting direction of earth around the sun. We explored how the overall temperature and humidity varies as a function of the distance from the trunk. 
+
+In our analysis, the data size was barrier for a lot of operations. The massivity of the data overpowered the trends and demanded a lot of computational power. Therefore, for most of out analysis, we use a subset of data filtered by either time or sensor or height.
+
+\section{Conclusion}
+The sensor network macroscope offers a useful tool to monitor dense temporal and spatial variations. The work of Tolle et al. captures the complex environmental dynamics of the microclimate surrounding a coastal redwood true satisfactorily. Some of the more peripheral findings from the data that make an interesting observation are discussed in this reports. The challenging work of extracting information from the large amount of data from sensor network deployment is eased with the help of multi-dimentional data analysis.
+
+
+\bibliography{lab1}
+            
+\end{document}
